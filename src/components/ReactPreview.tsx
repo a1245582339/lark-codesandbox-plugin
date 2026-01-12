@@ -208,6 +208,7 @@ const ReactPreview: React.FC<ReactPreviewProps> = ({ files }) => {
         <ul className="text-sm text-blue-700 space-y-1 list-disc list-inside">
           <li>附件中必须包含 App.tsx 或 App.jsx 作为入口</li>
           <li>目前只支持单文件组件，不支持文件间引用</li>
+          <li>请确保额外依赖都在组件顶部通过 import 引入</li>
           <li>首次打开需要等待环境初始化（约30秒）</li>
         </ul>
         <h4 className="text-sm font-medium text-blue-800 mt-3 mb-2">预装依赖</h4>
