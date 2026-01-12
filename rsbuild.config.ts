@@ -11,6 +11,12 @@ export default defineConfig({
       preview: './src/preview/main.tsx',
     },
   },
+  dev: {
+    assetPrefix: './',
+  },
+  output: {
+    assetPrefix: './',
+  },
   server: {
     headers: {
       'Cross-Origin-Embedder-Policy': 'require-corp',
@@ -43,7 +49,6 @@ export default defineConfig({
           ip: true,
           hideDomPathAttr: true,
         }),
-        
       ],
     },
   },
