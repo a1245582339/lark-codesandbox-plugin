@@ -119,9 +119,8 @@ const ReactPreview: React.FC<ReactPreviewProps> = ({ files }) => {
     });
     const encoded = btoa(unescape(encodeURIComponent(data)));
 
-    // 获取当前页面的 origin
-    const baseUrl = window.location.origin;
-    const previewUrl = baseUrl + '/preview.html#' + encoded;
+    // 使用相对路径获取 preview.html 的完整 URL
+    const previewUrl = new URL('./preview.html', window.location.href).href + '#' + encoded;
 
     // 打开新窗口
     const win = window.open(previewUrl, 'react-preview', 'width=1200,height=800');
