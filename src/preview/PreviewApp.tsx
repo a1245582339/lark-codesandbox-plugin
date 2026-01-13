@@ -3,6 +3,7 @@ import { WebContainer, type FileSystemTree } from '@webcontainer/api';
 import { Terminal } from 'xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import 'xterm/css/xterm.css';
+import { savePnpmStoreToCache, restorePnpmStoreFromCache } from './pnpmCache';
 
 // 全局单例 WebContainer 实例
 let globalWebContainer: WebContainer | null = null;
@@ -118,6 +119,7 @@ function createFiles(code: string, fileName: string, extraDeps: string[]): Creat
   const devDependencies: Record<string, string> = {
     '@rsbuild/core': '^1.0.0',
     '@rsbuild/plugin-react': '^1.0.0',
+    '@rspack/binding-wasm32-wasi': '^1.0.0',
     tailwindcss: '^3.4.0',
     postcss: '^8.4.0',
     autoprefixer: '^10.4.0',
@@ -176,8 +178,11 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
   </React.StrictMode>
 );`;
 
+  const npmrc = `store-dir=.local/share/pnpm/store`;
+
   const files = {
     'package.json': { file: { contents: JSON.stringify(packageJson, null, 2) } },
+    '.npmrc': { file: { contents: npmrc } },
     'rsbuild.config.mjs': { file: { contents: rsbuildConfig } },
     'tailwind.config.js': { file: { contents: tailwindConfig } },
     'postcss.config.mjs': { file: { contents: postcssConfig } },
@@ -210,9 +215,13 @@ const PreviewApp = () => {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [terminalReady, setTerminalReady] = useState(false);
+  const [commandInput, setCommandInput] = useState('');
+  const [shellReady, setShellReady] = useState(false);
   const terminalContainerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const webcontainerRef = useRef<WebContainer | null>(null);
+  const shellInputRef = useRef<WritableStreamDefaultWriter<string> | null>(null);
   const initedRef = useRef(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
@@ -234,6 +243,39 @@ const PreviewApp = () => {
       iframeRef.current.src = iframeRef.current.src;
     }
   }, []);
+
+  // 启动交互式 shell
+  const startShell = useCallback(async (webcontainer: WebContainer) => {
+    const shellProcess = await webcontainer.spawn('jsh', {
+      terminal: {
+        cols: globalTerminal?.cols || 80,
+        rows: globalTerminal?.rows || 24,
+      },
+    });
+
+    shellProcess.output.pipeTo(
+      new WritableStream({
+        write: (data) => {
+          if (globalTerminal) {
+            globalTerminal.write(data);
+          }
+        },
+      })
+    );
+
+    const input = shellProcess.input.getWriter();
+    shellInputRef.current = input;
+    setShellReady(true);
+
+    return shellProcess;
+  }, []);
+
+  // 执行命令
+  const executeCommand = useCallback(() => {
+    if (!shellInputRef.current || !commandInput.trim()) return;
+    shellInputRef.current.write(commandInput + '\n');
+    setCommandInput('');
+  }, [commandInput]);
 
   // 初始化 xterm
   useEffect(() => {
@@ -258,6 +300,7 @@ const PreviewApp = () => {
 
     globalTerminal = terminal;
     fitAddonRef.current = fitAddon;
+
     setTerminalReady(true);
 
     const handleResize = () => fitAddon.fit();
@@ -337,6 +380,14 @@ const PreviewApp = () => {
       await webcontainer.mount(files);
       log('项目文件已创建\n\n');
 
+      // 恢复 pnpm store 缓存
+      const cacheRestored = await restorePnpmStoreFromCache(webcontainer, (msg) => {
+        log(msg + '\n');
+      });
+      if (cacheRestored) {
+        log('\n');
+      }
+
       // 安装依赖
       updateStatus('installing', '正在安装依赖...');
       updateDepStatus('installing');
@@ -356,6 +407,14 @@ const PreviewApp = () => {
 
       updateDepStatus('installed');
       log('\n');
+
+      // 后台保存 pnpm store 缓存（不阻塞启动）
+      savePnpmStoreToCache(webcontainer, (msg) => {
+        console.log('[缓存]', msg);
+      }).catch((err) => {
+        console.error('保存 pnpm store 缓存失败:', err);
+      });
+
       updateStatus('running', '正在启动开发服务器...');
       log('$ pnpm run dev\n');
 
@@ -366,9 +425,12 @@ const PreviewApp = () => {
         })
       );
 
-      webcontainer.on('server-ready', (_port, url) => {
+      webcontainer.on('server-ready', async (_port, url) => {
         updateStatus('running', '开发服务器已启动');
         setPreviewUrl(url);
+
+        // 启动交互式 shell
+        await startShell(webcontainer);
       });
     } catch (err) {
       console.error(err);
@@ -466,6 +528,31 @@ const PreviewApp = () => {
               ref={terminalContainerRef}
               className="flex-1 overflow-hidden"
             />
+            {/* 命令输入框 */}
+            <div className="flex items-center gap-2 px-3 py-2 bg-[#2d2d2d] border-t border-[#404040]">
+              <span className="text-xs text-gray-500">$</span>
+              <input
+                ref={inputRef}
+                type="text"
+                value={commandInput}
+                onChange={(e) => setCommandInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    executeCommand();
+                  }
+                }}
+                placeholder={shellReady ? '输入命令...' : '等待 Shell 启动...'}
+                disabled={!shellReady}
+                className="flex-1 bg-transparent text-sm text-gray-200 placeholder-gray-600 outline-none font-mono disabled:opacity-50"
+              />
+              <button
+                onClick={executeCommand}
+                disabled={!shellReady || !commandInput.trim()}
+                className="px-3 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                执行
+              </button>
+            </div>
           </div>
         </div>
 
