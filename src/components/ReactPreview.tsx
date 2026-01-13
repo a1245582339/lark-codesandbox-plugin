@@ -1,6 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Editor from '@monaco-editor/react';
+import { compressToEncodedURIComponent } from 'lz-string';
 import { type AttachmentFile, downloadAttachmentContent } from '../services/bitable';
+
+// URL 长度限制，超过则降级到 localStorage
+const MAX_URL_LENGTH = 60000;
 
 interface ReactPreviewProps {
   files: AttachmentFile[];
@@ -52,8 +56,10 @@ const ReactPreview: React.FC<ReactPreviewProps> = ({ files, setFiles, isInBitabl
   const editorContainerRef = useRef<HTMLDivElement>(null);
   // 存储本地上传文件的内容
   const localFileContents = useRef<Map<string, string>>(new Map());
-  // 当前预览使用的 localStorage key
+  // 当前预览使用的 localStorage key（降级模式）
   const previewKeyRef = useRef<string | null>(null);
+  // 是否使用 URL 模式（跨浏览器共享）
+  const useUrlModeRef = useRef<boolean>(false);
 
   // 计算编辑器高度
   useEffect(() => {
@@ -165,7 +171,7 @@ const ReactPreview: React.FC<ReactPreviewProps> = ({ files, setFiles, isInBitabl
     };
   }, []);
 
-  // 代码变化时同步到预览窗口和 localStorage
+  // 代码变化时同步到预览窗口和存储
   const syncCodeToPreview = (code: string) => {
     if (previewWindowRef.current && !previewWindowRef.current.closed && selectedFile) {
       previewWindowRef.current.postMessage({
@@ -174,13 +180,29 @@ const ReactPreview: React.FC<ReactPreviewProps> = ({ files, setFiles, isInBitabl
         fileName: selectedFile.name
       }, '*');
     }
-    // 同步更新 localStorage
-    if (previewKeyRef.current && selectedFile) {
-      const data = JSON.stringify({
-        code,
-        fileName: selectedFile.name
-      });
-      localStorage.setItem(previewKeyRef.current, data);
+    // 根据模式同步更新存储
+    if (selectedFile) {
+      if (useUrlModeRef.current && previewWindowRef.current && !previewWindowRef.current.closed) {
+        // URL 模式：更新预览窗口的 URL hash
+        const data = JSON.stringify({
+          code,
+          fileName: selectedFile.name,
+          fromParent: true
+        });
+        const compressed = compressToEncodedURIComponent(data);
+        const newUrl = new URL('./preview.html', window.location.href).href + '#c=' + compressed;
+        // 只有 URL 长度在限制内才更新
+        if (newUrl.length <= MAX_URL_LENGTH) {
+          previewWindowRef.current.location.hash = '#c=' + compressed;
+        }
+      } else if (previewKeyRef.current) {
+        // localStorage 模式
+        const data = JSON.stringify({
+          code,
+          fileName: selectedFile.name
+        });
+        localStorage.setItem(previewKeyRef.current, data);
+      }
     }
   };
 
@@ -198,18 +220,32 @@ const ReactPreview: React.FC<ReactPreviewProps> = ({ files, setFiles, isInBitabl
       previewWindowRef.current.close();
     }
 
-    // 使用 localStorage 传递数据，避免 URL 过长
-    const key = `preview-${Date.now()}`;
-    previewKeyRef.current = key;
     const data = JSON.stringify({
       code: codeContent,
       fileName: selectedFile.name,
       fromParent: true  // 标记为从父窗口打开
     });
-    localStorage.setItem(key, data);
 
-    // 使用相对路径获取 preview.html 的完整 URL
-    const previewUrl = new URL('./preview.html', window.location.href).href + '#' + key;
+    // 尝试使用 URL 压缩模式（支持跨浏览器）
+    const compressed = compressToEncodedURIComponent(data);
+    const baseUrl = new URL('./preview.html', window.location.href).href;
+    const urlWithCompressed = baseUrl + '#c=' + compressed;
+
+    let previewUrl: string;
+
+    if (urlWithCompressed.length <= MAX_URL_LENGTH) {
+      // URL 长度在限制内，使用 URL 模式
+      useUrlModeRef.current = true;
+      previewKeyRef.current = null;
+      previewUrl = urlWithCompressed;
+    } else {
+      // URL 过长，降级到 localStorage 模式
+      useUrlModeRef.current = false;
+      const key = `preview-${Date.now()}`;
+      previewKeyRef.current = key;
+      localStorage.setItem(key, data);
+      previewUrl = baseUrl + '#' + key;
+    }
 
     // 打开新窗口
     const win = window.open(previewUrl, 'react-preview', 'width=1200,height=800');

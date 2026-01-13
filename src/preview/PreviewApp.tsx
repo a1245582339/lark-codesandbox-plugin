@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { WebContainer, type FileSystemTree } from '@webcontainer/api';
 import { Terminal } from 'xterm';
 import { FitAddon } from '@xterm/addon-fit';
+import { decompressFromEncodedURIComponent } from 'lz-string';
 import 'xterm/css/xterm.css';
 import { savePnpmStoreToCache, restorePnpmStoreFromCache } from './pnpmCache';
 
@@ -47,6 +48,11 @@ interface CodeData {
   fromParent?: boolean;  // 是否从父窗口打开
 }
 
+interface GetCodeResult {
+  data: CodeData;
+  isUrlMode: boolean;  // 是否使用 URL 压缩模式（支持跨浏览器分享）
+}
+
 // 基础依赖（不需要从代码中检测）
 const BASE_DEPS = ['react', 'react-dom', 'react/jsx-runtime', 'tailwindcss', 'postcss', 'autoprefixer'];
 // 默认显示的依赖
@@ -85,13 +91,30 @@ function analyzeDependencies(code: string): string[] {
   return Array.from(deps).filter((dep) => !BASE_DEPS.includes(dep));
 }
 
-function getCodeFromHash(): CodeData | null {
+function getCodeFromHash(): GetCodeResult | null {
   const hash = window.location.hash;
   if (!hash || hash.length < 2) {
     return null;
   }
   try {
-    const key = hash.substring(1);
+    const hashContent = hash.substring(1);
+
+    // 检查是否是压缩模式（以 c= 开头）
+    if (hashContent.startsWith('c=')) {
+      const compressed = hashContent.substring(2);
+      const decompressed = decompressFromEncodedURIComponent(compressed);
+      if (!decompressed) {
+        console.error('Failed to decompress code from URL');
+        return null;
+      }
+      return {
+        data: JSON.parse(decompressed),
+        isUrlMode: true
+      };
+    }
+
+    // 降级模式：从 localStorage 读取
+    const key = hashContent;
     const data = localStorage.getItem(key);
     if (!data) {
       return null;
@@ -100,9 +123,12 @@ function getCodeFromHash(): CodeData | null {
     window.addEventListener('beforeunload', () => {
       localStorage.removeItem(key);
     });
-    return JSON.parse(data);
+    return {
+      data: JSON.parse(data),
+      isUrlMode: false
+    };
   } catch (e) {
-    console.error('Failed to get code from localStorage:', e);
+    console.error('Failed to get code from hash:', e);
     return null;
   }
 }
@@ -226,6 +252,7 @@ const PreviewApp = () => {
   const [commandInput, setCommandInput] = useState('');
   const [shellReady, setShellReady] = useState(false);
   const [fromParent, setFromParent] = useState(false);
+  const [isUrlMode, setIsUrlMode] = useState(false);
   const terminalContainerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -341,17 +368,22 @@ const PreviewApp = () => {
     if (!terminalReady || initedRef.current) return;
     initedRef.current = true;
 
-    const data = getCodeFromHash();
-    if (!data || !data.code) {
+    const result = getCodeFromHash();
+    if (!result || !result.data.code) {
       setError('未能接收到代码，请关闭此窗口并重新点击预览按钮');
       updateStatus('error', '未收到代码');
       return;
     }
 
+    const { data, isUrlMode: urlMode } = result;
+
     // 设置是否从父窗口打开（需要同时满足：数据标记 + 存在 opener）
     if (data.fromParent && window.opener) {
       setFromParent(true);
     }
+
+    // 设置是否使用 URL 模式
+    setIsUrlMode(urlMode);
 
     log(`收到代码: ${data.fileName}\n\n`);
     runPreview(data.code, data.fileName);
@@ -537,8 +569,10 @@ const PreviewApp = () => {
 
       {/* 从父窗口打开时的提示 */}
       {fromParent && (
-        <div className="px-4 py-2 bg-blue-900/50 border-b border-blue-800 text-blue-200 text-xs">
-          💡 保持该窗口不关闭，即可将该页面分享给其他人，并可以实时更新
+        <div className={`px-4 py-2 border-b text-xs ${isUrlMode ? 'bg-blue-900/50 border-blue-800 text-blue-200' : 'bg-amber-900/50 border-amber-800 text-amber-200'}`}>
+          {isUrlMode
+            ? '💡 保持该窗口不关闭，即可将该页面分享给其他人，但他人无法看到你的代码变化引发的实时更新。如需让对方看到更新，请关闭窗口，重新发起预览再分享'
+            : '⚠️ 文件内容过大，无法启用分享功能'}
         </div>
       )}
 
