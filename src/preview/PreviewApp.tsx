@@ -90,11 +90,18 @@ function getCodeFromHash(): CodeData | null {
     return null;
   }
   try {
-    const encoded = hash.substring(1);
-    const decoded = decodeURIComponent(escape(atob(encoded)));
-    return JSON.parse(decoded);
+    const key = hash.substring(1);
+    const data = localStorage.getItem(key);
+    if (!data) {
+      return null;
+    }
+    // 窗口关闭时删除，避免污染 localStorage
+    window.addEventListener('beforeunload', () => {
+      localStorage.removeItem(key);
+    });
+    return JSON.parse(data);
   } catch (e) {
-    console.error('Failed to decode hash:', e);
+    console.error('Failed to get code from localStorage:', e);
     return null;
   }
 }

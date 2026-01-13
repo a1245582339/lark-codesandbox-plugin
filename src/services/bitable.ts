@@ -9,9 +9,18 @@ export interface AttachmentFile {
 
 /**
  * 初始化飞书多维表格SDK
+ * 通过实际调用 SDK 方法来检测是否在多维表格环境中
  */
 export async function initBitable() {
-  // SDK会自动初始化，这里可以做一些预加载
+  // 设置超时，如果 3 秒内没有响应则认为不在多维表格环境
+  const timeout = new Promise<never>((_, reject) => {
+    setTimeout(() => reject(new Error('SDK 初始化超时')), 3000);
+  });
+
+  // 尝试获取 selection 来验证是否在多维表格环境
+  const checkEnv = bitable.base.getSelection();
+
+  await Promise.race([checkEnv, timeout]);
   return bitable;
 }
 

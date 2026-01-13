@@ -8,7 +8,8 @@
     "build": "rsbuild build",
     "dev": "rsbuild dev",
     "format": "prettier --write .",
-    "preview": "rsbuild preview"
+    "preview": "rsbuild preview",
+    "prepare": "husky"
   },
   "dependencies": {
     "@lark-base-open/js-sdk": "^1.0.0",
@@ -27,6 +28,7 @@
     "@tailwindcss/postcss": "^4.1.18",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
+    "husky": "^9.1.7",
     "prettier": "^3.7.3",
     "tailwindcss": "^4.1.18",
     "typescript": "^5.9.3"

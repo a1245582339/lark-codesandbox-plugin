@@ -5,6 +5,8 @@ import { type AttachmentFile, downloadAttachmentContent } from '../services/bita
 
 interface ReactPreviewProps {
   files: AttachmentFile[];
+  setFiles: (files: AttachmentFile[]) => void;
+  isInBitable: boolean;
 }
 
 // 验证文件列表，检查 App.tsx/App.jsx 的要求
@@ -40,12 +42,45 @@ function validateAppFiles(files: AttachmentFile[]): { valid: boolean; error?: st
   return { valid: true, appFile: appFiles[0] };
 }
 
-const ReactPreview: React.FC<ReactPreviewProps> = ({ files }) => {
+const ReactPreview: React.FC<ReactPreviewProps> = ({ files, setFiles, isInBitable }) => {
   const [selectedFile, setSelectedFile] = useState<AttachmentFile | null>(null);
   const [codeContent, setCodeContent] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const previewWindowRef = useRef<Window | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  // 存储本地上传文件的内容
+  const localFileContents = useRef<Map<string, string>>(new Map());
+
+  // 处理本地文件上传
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const uploadedFiles = e.target.files;
+    if (!uploadedFiles || uploadedFiles.length === 0) return;
+
+    const newFiles: AttachmentFile[] = [];
+    localFileContents.current.clear();
+
+    for (const file of Array.from(uploadedFiles)) {
+      const name = file.name.toLowerCase();
+      if (name.endsWith('.jsx') || name.endsWith('.tsx')) {
+        const content = await file.text();
+        const token = `local-${Date.now()}-${file.name}`;
+        localFileContents.current.set(token, content);
+        newFiles.push({
+          name: file.name,
+          url: '', // 本地文件没有 URL
+          token,
+          type: file.type,
+        });
+      }
+    }
+
+    setFiles(newFiles);
+    // 清空 input 以便重复上传同一文件
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
 
   // 验证文件
   const validation = validateAppFiles(files);
@@ -64,17 +99,17 @@ const ReactPreview: React.FC<ReactPreviewProps> = ({ files }) => {
     }
   }, [files, validation.valid, validation.appFile?.token, validation.appFile?.url]);
 
-  // 当 selectedFile 变化时加载内容（通过 URL 判断是否需要重新加载）
-  const lastLoadedUrlRef = useRef<string>('');
+  // 当 selectedFile 变化时加载内容
+  const lastLoadedTokenRef = useRef<string>('');
 
   useEffect(() => {
     if (!selectedFile) {
-      lastLoadedUrlRef.current = '';
+      lastLoadedTokenRef.current = '';
       return;
     }
 
-    // 如果 URL 没变，不需要重新加载
-    if (selectedFile.url === lastLoadedUrlRef.current) {
+    // 如果 token 没变，不需要重新加载
+    if (selectedFile.token === lastLoadedTokenRef.current) {
       return;
     }
 
@@ -82,9 +117,17 @@ const ReactPreview: React.FC<ReactPreviewProps> = ({ files }) => {
       try {
         setLoading(true);
         setError(null);
-        const content = await downloadAttachmentContent(selectedFile.url);
+
+        let content: string;
+        // 检查是否是本地上传的文件
+        if (selectedFile.token.startsWith('local-')) {
+          content = localFileContents.current.get(selectedFile.token) || '';
+        } else {
+          content = await downloadAttachmentContent(selectedFile.url);
+        }
+
         setCodeContent(content);
-        lastLoadedUrlRef.current = selectedFile.url;
+        lastLoadedTokenRef.current = selectedFile.token;
       } catch (err) {
         setError(err instanceof Error ? err.message : '加载失败');
       } finally {
@@ -112,15 +155,16 @@ const ReactPreview: React.FC<ReactPreviewProps> = ({ files }) => {
       previewWindowRef.current.close();
     }
 
-    // 将代码编码后放入 URL hash
+    // 使用 localStorage 传递数据，避免 URL 过长
+    const key = `preview-${Date.now()}`;
     const data = JSON.stringify({
       code: codeContent,
       fileName: selectedFile.name
     });
-    const encoded = btoa(unescape(encodeURIComponent(data)));
+    localStorage.setItem(key, data);
 
     // 使用相对路径获取 preview.html 的完整 URL
-    const previewUrl = new URL('./preview.html', window.location.href).href + '#' + encoded;
+    const previewUrl = new URL('./preview.html', window.location.href).href + '#' + key;
 
     // 打开新窗口
     const win = window.open(previewUrl, 'react-preview', 'width=1200,height=800');
@@ -130,11 +174,29 @@ const ReactPreview: React.FC<ReactPreviewProps> = ({ files }) => {
   if (files.length === 0) {
     return (
       <div className="flex flex-col gap-3 flex-1">
-        <div className="flex flex-col items-center justify-center min-h-[300px] text-center bg-white rounded-lg border border-dashed border-gray-300 gap-2">
-          <div className="text-5xl mb-2">📎</div>
-          <h3 className="text-base font-semibold text-gray-800">请选择附件字段</h3>
-          <p className="text-sm text-gray-500">选择包含 App.tsx 或 App.jsx 文件的附件单元格</p>
-        </div>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".tsx,.jsx"
+          onChange={handleFileUpload}
+          className="hidden"
+        />
+        {isInBitable ? (
+          <div className="flex flex-col items-center justify-center min-h-[300px] text-center bg-white rounded-lg border border-dashed border-gray-300 gap-2">
+            <div className="text-5xl mb-2">📎</div>
+            <h3 className="text-base font-semibold text-gray-800">请选择附件字段</h3>
+            <p className="text-sm text-gray-500">选择包含 App.tsx 或 App.jsx 文件的附件单元格</p>
+          </div>
+        ) : (
+          <div
+            onClick={() => fileInputRef.current?.click()}
+            className="flex flex-col items-center justify-center min-h-[300px] text-center bg-white rounded-lg border border-dashed border-gray-300 gap-2 cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition-colors"
+          >
+            <div className="text-5xl mb-2">📤</div>
+            <h3 className="text-base font-semibold text-gray-800">点击上传文件</h3>
+            <p className="text-sm text-gray-500">支持 App.tsx 或 App.jsx 文件</p>
+          </div>
+        )}
       </div>
     );
   }
