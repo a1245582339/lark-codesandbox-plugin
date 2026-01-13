@@ -44,6 +44,7 @@ interface Dependency {
 interface CodeData {
   code: string;
   fileName: string;
+  fromParent?: boolean;  // 是否从父窗口打开
 }
 
 // 基础依赖（不需要从代码中检测）
@@ -224,6 +225,7 @@ const PreviewApp = () => {
   const [terminalReady, setTerminalReady] = useState(false);
   const [commandInput, setCommandInput] = useState('');
   const [shellReady, setShellReady] = useState(false);
+  const [fromParent, setFromParent] = useState(false);
   const terminalContainerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -303,14 +305,28 @@ const PreviewApp = () => {
     const fitAddon = new FitAddon();
     terminal.loadAddon(fitAddon);
     terminal.open(terminalContainerRef.current);
-    fitAddon.fit();
+
+    // 延迟调用 fit()，确保容器有尺寸
+    requestAnimationFrame(() => {
+      try {
+        fitAddon.fit();
+      } catch (e) {
+        // 忽略 fit 错误
+      }
+    });
 
     globalTerminal = terminal;
     fitAddonRef.current = fitAddon;
 
     setTerminalReady(true);
 
-    const handleResize = () => fitAddon.fit();
+    const handleResize = () => {
+      try {
+        fitAddon.fit();
+      } catch (e) {
+        // 忽略 fit 错误
+      }
+    };
     window.addEventListener('resize', handleResize);
 
     return () => {
@@ -332,9 +348,35 @@ const PreviewApp = () => {
       return;
     }
 
+    // 设置是否从父窗口打开（需要同时满足：数据标记 + 存在 opener）
+    if (data.fromParent && window.opener) {
+      setFromParent(true);
+    }
+
     log(`收到代码: ${data.fileName}\n\n`);
     runPreview(data.code, data.fileName);
   }, [terminalReady]);
+
+  // 监听来自父窗口的代码更新
+  useEffect(() => {
+    const handleMessage = async (event: MessageEvent) => {
+      if (event.data?.type !== 'code-update') return;
+
+      const { code, fileName } = event.data;
+      if (!code || !fileName || !webcontainerRef.current) return;
+
+      try {
+        // 写入更新后的代码到文件
+        await webcontainerRef.current.fs.writeFile(`/src/${fileName}`, code);
+        log(`[HMR] 代码已更新: ${fileName}\n`);
+      } catch (err) {
+        console.error('Failed to update code:', err);
+      }
+    };
+
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, [log]);
 
   const runPreview = async (code: string, fileName: string) => {
     // Analyze dependencies
@@ -492,6 +534,13 @@ const PreviewApp = () => {
           <span>{statusMessage}</span>
         </div>
       </header>
+
+      {/* 从父窗口打开时的提示 */}
+      {fromParent && (
+        <div className="px-4 py-2 bg-blue-900/50 border-b border-blue-800 text-blue-200 text-xs">
+          💡 保持该窗口不关闭，即可将该页面分享给其他人，并可以实时更新
+        </div>
+      )}
 
       {/* Main */}
       <main className="flex flex-1 min-h-0">

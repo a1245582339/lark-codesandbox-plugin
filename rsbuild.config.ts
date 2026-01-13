@@ -1,10 +1,11 @@
 import { defineConfig } from '@rsbuild/core';
 import { pluginReact } from '@rsbuild/plugin-react';
+import { pluginBasicSsl } from '@rsbuild/plugin-basic-ssl';
 import { codeInspectorPlugin } from 'code-inspector-plugin';
 
 // Docs: https://rsbuild.rs/config/
 export default defineConfig({
-  plugins: [pluginReact()],
+  plugins: [pluginReact(), pluginBasicSsl()],
   source: {
     entry: {
       index: './src/index.tsx',
@@ -14,15 +15,16 @@ export default defineConfig({
   dev: {
     assetPrefix: './',
   },
-  output: {
-    assetPrefix: './',
-  },
   server: {
+    host: '0.0.0.0',
     headers: {
       'Cross-Origin-Embedder-Policy': 'require-corp',
       'Cross-Origin-Opener-Policy': 'same-origin',
       'Cross-Origin-Resource-Policy': 'cross-origin',
     },
+  },
+  output: {
+    assetPrefix: './',
   },
   html: {
     title: 'React 组件预览 - 飞书多维表格插件',

@@ -12,6 +12,17 @@ const App = () => {
   const [initialized, setInitialized] = useState(false);
   const [isInBitable, setIsInBitable] = useState(true);
 
+  // 禁用浏览器默认的 Ctrl+F/Cmd+F 搜索
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+        e.preventDefault();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
   useEffect(() => {
     const init = async () => {
       try {

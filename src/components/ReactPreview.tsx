@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import Editor from '@monaco-editor/react';
 import { type AttachmentFile, downloadAttachmentContent } from '../services/bitable';
 
 interface ReactPreviewProps {
@@ -47,10 +46,29 @@ const ReactPreview: React.FC<ReactPreviewProps> = ({ files, setFiles, isInBitabl
   const [codeContent, setCodeContent] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [editorHeight, setEditorHeight] = useState<number>(400);
   const previewWindowRef = useRef<Window | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const editorContainerRef = useRef<HTMLDivElement>(null);
   // 存储本地上传文件的内容
   const localFileContents = useRef<Map<string, string>>(new Map());
+  // 当前预览使用的 localStorage key
+  const previewKeyRef = useRef<string | null>(null);
+
+  // 计算编辑器高度
+  useEffect(() => {
+    const updateEditorHeight = () => {
+      if (editorContainerRef.current) {
+        const rect = editorContainerRef.current.getBoundingClientRect();
+        const availableHeight = window.innerHeight - rect.top - 16; // 16px 底部边距
+        setEditorHeight(Math.max(300, availableHeight));
+      }
+    };
+
+    updateEditorHeight();
+    window.addEventListener('resize', updateEditorHeight);
+    return () => window.removeEventListener('resize', updateEditorHeight);
+  }, [codeContent, loading]);
 
   // 处理本地文件上传
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -147,6 +165,31 @@ const ReactPreview: React.FC<ReactPreviewProps> = ({ files, setFiles, isInBitabl
     };
   }, []);
 
+  // 代码变化时同步到预览窗口和 localStorage
+  const syncCodeToPreview = (code: string) => {
+    if (previewWindowRef.current && !previewWindowRef.current.closed && selectedFile) {
+      previewWindowRef.current.postMessage({
+        type: 'code-update',
+        code,
+        fileName: selectedFile.name
+      }, '*');
+    }
+    // 同步更新 localStorage
+    if (previewKeyRef.current && selectedFile) {
+      const data = JSON.stringify({
+        code,
+        fileName: selectedFile.name
+      });
+      localStorage.setItem(previewKeyRef.current, data);
+    }
+  };
+
+  const handleCodeChange = (value: string | undefined) => {
+    const newCode = value || '';
+    setCodeContent(newCode);
+    syncCodeToPreview(newCode);
+  };
+
   const openPreview = () => {
     if (!codeContent || !selectedFile) return;
 
@@ -157,9 +200,11 @@ const ReactPreview: React.FC<ReactPreviewProps> = ({ files, setFiles, isInBitabl
 
     // 使用 localStorage 传递数据，避免 URL 过长
     const key = `preview-${Date.now()}`;
+    previewKeyRef.current = key;
     const data = JSON.stringify({
       code: codeContent,
-      fileName: selectedFile.name
+      fileName: selectedFile.name,
+      fromParent: true  // 标记为从父窗口打开
     });
     localStorage.setItem(key, data);
 
@@ -247,21 +292,40 @@ const ReactPreview: React.FC<ReactPreviewProps> = ({ files, setFiles, isInBitabl
         </div>
       )}
 
-      {/* 预览按钮 - 占满整行 */}
-      <button
-        onClick={openPreview}
-        disabled={!codeContent || loading}
-        className="w-full py-3 text-base font-medium text-white bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed rounded-lg cursor-pointer transition-colors flex items-center justify-center gap-2"
-      >
-        {loading ? (
+      {/* 操作按钮 */}
+      <div className="flex gap-2">
+        <button
+          onClick={openPreview}
+          disabled={!codeContent || loading}
+          className="flex-1 py-3 text-base font-medium text-white bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed rounded-lg cursor-pointer transition-colors flex items-center justify-center gap-2"
+        >
+          {loading ? (
+            <>
+              <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              正在加载...
+            </>
+          ) : (
+            <>🚀 在新窗口预览</>
+          )}
+        </button>
+        {!isInBitable && (
           <>
-            <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-            正在加载...
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".tsx,.jsx"
+              onChange={handleFileUpload}
+              className="hidden"
+            />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="px-4 py-3 text-base font-medium text-gray-700 bg-gray-200 hover:bg-gray-300 rounded-lg cursor-pointer transition-colors"
+            >
+              📂 重新上传
+            </button>
           </>
-        ) : (
-          <>🚀 在新窗口预览</>
         )}
-      </button>
+      </div>
 
       {/* 使用说明 */}
       <div className="px-4 py-3 bg-blue-50 border border-blue-200 rounded-md">
@@ -270,7 +334,7 @@ const ReactPreview: React.FC<ReactPreviewProps> = ({ files, setFiles, isInBitabl
           <li>附件中必须包含 App.tsx 或 App.jsx 作为入口</li>
           <li>目前只支持单文件组件，不支持文件间引用</li>
           <li>请确保额外依赖都在组件顶部通过 import 引入</li>
-          <li>首次打开需要等待环境初始化（约30秒）</li>
+          <li>首次打开需要等待环境初始化（约30秒-1分钟）</li>
         </ul>
         <h4 className="text-sm font-medium text-blue-800 mt-3 mb-2">预装依赖</h4>
         <div className="flex flex-wrap gap-1.5">
@@ -283,27 +347,68 @@ const ReactPreview: React.FC<ReactPreviewProps> = ({ files, setFiles, isInBitabl
         <p className="text-xs text-blue-600 mt-2">其他依赖会根据代码中的 import 自动安装</p>
       </div>
 
-      {/* 代码预览 - 放在底部 */}
+      {/* 代码编辑器 */}
       {codeContent && !loading && (
-        <div className="bg-white rounded-lg border border-gray-200 overflow-hidden flex flex-col flex-1">
-          <div className="flex items-center px-3 py-2 bg-gray-100 border-b border-gray-200">
-            <span className="text-sm font-medium text-gray-800">📄 {selectedFile?.name}</span>
-          </div>
-          <div className="flex-1 overflow-auto">
-            <SyntaxHighlighter
-              language={selectedFile?.name.endsWith('.tsx') ? 'tsx' : 'jsx'}
-              style={vscDarkPlus}
-              customStyle={{
-                margin: 0,
-                padding: '12px',
-                fontSize: '12px',
-                lineHeight: '1.5',
-                minHeight: '100%',
-              }}
-              showLineNumbers
+        <div ref={editorContainerRef} className="bg-white rounded-lg border border-gray-200 overflow-hidden flex">
+          {/* 左侧文件列表 */}
+          <div className="w-48 bg-[#252526] border-r border-[#3c3c3c] flex flex-col">
+            <div className="px-3 py-2 text-xs text-gray-400 uppercase tracking-wide">
+              文件
+            </div>
+            <div
+              className="flex items-center gap-2 px-3 py-1.5 bg-[#37373d] text-white text-sm cursor-pointer"
             >
-              {codeContent}
-            </SyntaxHighlighter>
+              <span className="text-yellow-400">📄</span>
+              <span>{selectedFile?.name}</span>
+            </div>
+          </div>
+          {/* 右侧编辑器 */}
+          <div className="flex-1 flex flex-col">
+            <div className="flex items-center px-3 py-1.5 bg-[#2d2d2d] border-b border-[#3c3c3c]">
+              <span className="text-sm text-gray-300">{selectedFile?.name}</span>
+            </div>
+            <Editor
+              height={`${editorHeight}px`}
+              language={selectedFile?.name.endsWith('.tsx') ? 'typescript' : 'javascript'}
+              theme="vs-dark"
+              value={codeContent}
+              onChange={handleCodeChange}
+              beforeMount={(monaco) => {
+                // 禁用所有代码校验
+                monaco.languages.typescript.typescriptDefaults.setDiagnosticsOptions({
+                  noSemanticValidation: true,
+                  noSyntaxValidation: true,
+                });
+                monaco.languages.typescript.javascriptDefaults.setDiagnosticsOptions({
+                  noSemanticValidation: true,
+                  noSyntaxValidation: true,
+                });
+              }}
+              options={{
+                minimap: { enabled: false },
+                fontSize: 13,
+                lineNumbers: 'on',
+                scrollBeyondLastLine: false,
+                automaticLayout: true,
+                tabSize: 2,
+                // 启用搜索功能
+                find: {
+                  addExtraSpaceOnTop: false,
+                  autoFindInSelection: 'never',
+                  seedSearchStringFromSelection: 'selection',
+                },
+              }}
+              onMount={(editor) => {
+                // 确保 Ctrl+F/Cmd+F 触发搜索而非浏览器默认行为
+                editor.addCommand(
+                  // Monaco.KeyMod.CtrlCmd | Monaco.KeyCode.KeyF
+                  2048 | 36,
+                  () => {
+                    editor.getAction('actions.find')?.run();
+                  }
+                );
+              }}
+            />
           </div>
         </div>
       )}
