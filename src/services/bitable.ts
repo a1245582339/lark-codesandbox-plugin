@@ -57,13 +57,18 @@ export function onFieldSelectionChange(
         return [];
       }
 
-      // 过滤出jsx/tsx文件
-      const jsxTsxFiles = attachments.filter((att: IOpenAttachment) => {
+      // 过滤出支持的组件文件 (.jsx/.tsx/.vue/.svelte)
+      const componentFiles = attachments.filter((att: IOpenAttachment) => {
         const name = att.name.toLowerCase();
-        return name.endsWith('.jsx') || name.endsWith('.tsx');
+        return (
+          name.endsWith('.jsx') ||
+          name.endsWith('.tsx') ||
+          name.endsWith('.vue') ||
+          name.endsWith('.svelte')
+        );
       });
 
-      if (jsxTsxFiles.length === 0) {
+      if (componentFiles.length === 0) {
         return [];
       }
 
@@ -76,7 +81,7 @@ export function onFieldSelectionChange(
         }
       });
 
-      return jsxTsxFiles.map((att: IOpenAttachment) => ({
+      return componentFiles.map((att: IOpenAttachment) => ({
         name: att.name,
         url: urlMap.get(att.token) || '',
         token: att.token,

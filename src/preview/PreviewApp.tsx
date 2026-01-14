@@ -1,10 +1,16 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { WebContainer, type FileSystemTree } from '@webcontainer/api';
 import { Terminal } from 'xterm';
-import { FitAddon } from '@xterm/addon-fit';
 import { decompressFromEncodedURIComponent } from 'lz-string';
+import JSZip from 'jszip';
 import 'xterm/css/xterm.css';
 import { savePnpmStoreToCache, restorePnpmStoreFromCache } from './pnpmCache';
+import {
+  detectFramework,
+  analyzeDependencies,
+  type FrameworkAdapter,
+  type FrameworkType,
+} from '../adapters';
 
 // 全局单例 WebContainer 实例
 let globalWebContainer: WebContainer | null = null;
@@ -45,50 +51,13 @@ interface Dependency {
 interface CodeData {
   code: string;
   fileName: string;
-  fromParent?: boolean;  // 是否从父窗口打开
+  frameworkType?: FrameworkType;
+  fromParent?: boolean; // 是否从父窗口打开
 }
 
 interface GetCodeResult {
   data: CodeData;
-  isUrlMode: boolean;  // 是否使用 URL 压缩模式（支持跨浏览器分享）
-}
-
-// 基础依赖（不需要从代码中检测）
-const BASE_DEPS = ['react', 'react-dom', 'react/jsx-runtime', 'tailwindcss', 'postcss', 'autoprefixer'];
-// 默认显示的依赖
-const DEFAULT_DEPS = ['react', 'react-dom', 'tailwindcss'];
-
-function analyzeDependencies(code: string): string[] {
-  const deps = new Set<string>();
-
-  // Match import ... from 'package'
-  const importFromRegex = /import\s+(?:[\w\s{},*]+\s+from\s+)?['"]([^'"./][^'"]*)['"]/g;
-  let match;
-  while ((match = importFromRegex.exec(code)) !== null) {
-    let pkg = match[1];
-    if (pkg.startsWith('@')) {
-      const parts = pkg.split('/');
-      pkg = parts[0] + '/' + parts[1];
-    } else {
-      pkg = pkg.split('/')[0];
-    }
-    deps.add(pkg);
-  }
-
-  // Match require('package')
-  const requireRegex = /require\s*\(\s*['"]([^'"./][^'"]*)['"]\s*\)/g;
-  while ((match = requireRegex.exec(code)) !== null) {
-    let pkg = match[1];
-    if (pkg.startsWith('@')) {
-      const parts = pkg.split('/');
-      pkg = parts[0] + '/' + parts[1];
-    } else {
-      pkg = pkg.split('/')[0];
-    }
-    deps.add(pkg);
-  }
-
-  return Array.from(deps).filter((dep) => !BASE_DEPS.includes(dep));
+  isUrlMode: boolean; // 是否使用 URL 压缩模式（支持跨浏览器分享）
 }
 
 function getCodeFromHash(): GetCodeResult | null {
@@ -109,7 +78,7 @@ function getCodeFromHash(): GetCodeResult | null {
       }
       return {
         data: JSON.parse(decompressed),
-        isUrlMode: true
+        isUrlMode: true,
       };
     }
 
@@ -125,7 +94,7 @@ function getCodeFromHash(): GetCodeResult | null {
     });
     return {
       data: JSON.parse(data),
-      isUrlMode: false
+      isUrlMode: false,
     };
   } catch (e) {
     console.error('Failed to get code from hash:', e);
@@ -133,107 +102,10 @@ function getCodeFromHash(): GetCodeResult | null {
   }
 }
 
-interface CreateFilesResult {
-  files: FileSystemTree;
-}
-
-function createFiles(code: string, fileName: string, extraDeps: string[]): CreateFilesResult {
-  const isTypeScript = fileName.endsWith('.tsx');
-  const componentName = fileName.replace(/\.(jsx|tsx)$/, '');
-
-  const dependencies: Record<string, string> = {
-    react: '^18.2.0',
-    'react-dom': '^18.2.0',
-  };
-
-  extraDeps.forEach((dep) => {
-    dependencies[dep] = 'latest';
-  });
-
-  const devDependencies: Record<string, string> = {
-    '@rsbuild/core': '^1.0.0',
-    '@rsbuild/plugin-react': '^1.0.0',
-    '@rspack/binding-wasm32-wasi': '^1.0.0',
-    tailwindcss: '^3.4.0',
-    postcss: '^8.4.0',
-    autoprefixer: '^10.4.0',
-    ...(isTypeScript
-      ? {
-          typescript: '^5.3.0',
-          '@types/react': '^18.2.0',
-          '@types/react-dom': '^18.2.0',
-        }
-      : {}),
-  };
-
-  const packageJson = {
-    name: 'react-preview',
-    type: 'module',
-    scripts: { dev: 'rsbuild dev' },
-    dependencies,
-    devDependencies,
-  };
-
-  const rsbuildConfig = `import { defineConfig } from '@rsbuild/core';
-import { pluginReact } from '@rsbuild/plugin-react';
-
-export default defineConfig({
-  plugins: [pluginReact()],
-});`;
-
-  const tailwindConfig = `/** @type {import('tailwindcss').Config} */
-export default {
-  content: ['./src/**/*.{js,jsx,ts,tsx}'],
-  theme: {
-    extend: {},
-  },
-  plugins: [],
-};`;
-
-  const postcssConfig = `export default {
-  plugins: {
-    tailwindcss: {},
-    autoprefixer: {},
-  },
-};`;
-
-  const indexCss = `@tailwind base;
-@tailwind components;
-@tailwind utilities;`;
-
-  const mainFile = `import React from 'react';
-import ReactDOM from 'react-dom/client';
-import './index.css';
-import ${componentName} from './${fileName}';
-
-ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
-    <${componentName} />
-  </React.StrictMode>
-);`;
-
-  const npmrc = `store-dir=.local/share/pnpm/store`;
-
-  const files = {
-    'package.json': { file: { contents: JSON.stringify(packageJson, null, 2) } },
-    '.npmrc': { file: { contents: npmrc } },
-    'rsbuild.config.mjs': { file: { contents: rsbuildConfig } },
-    'tailwind.config.js': { file: { contents: tailwindConfig } },
-    'postcss.config.mjs': { file: { contents: postcssConfig } },
-    src: {
-      directory: {
-        'index.tsx': { file: { contents: mainFile } },
-        'index.css': { file: { contents: indexCss } },
-        [fileName]: { file: { contents: code } },
-      },
-    },
-  };
-
-  return { files: files as FileSystemTree };
-}
-
 // 全局终端实例，避免闭包问题
 let globalTerminal: Terminal | null = null;
+// 用于 StrictMode 兼容：延迟 dispose 的定时器
+let disposeTimer: ReturnType<typeof setTimeout> | null = null;
 
 function writeToTerminal(text: string) {
   if (globalTerminal) {
@@ -253,13 +125,15 @@ const PreviewApp = () => {
   const [shellReady, setShellReady] = useState(false);
   const [fromParent, setFromParent] = useState(false);
   const [isUrlMode, setIsUrlMode] = useState(false);
+  const [frameworkName, setFrameworkName] = useState<string>('组件');
+  const [downloading, setDownloading] = useState(false);
   const terminalContainerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const fitAddonRef = useRef<FitAddon | null>(null);
   const webcontainerRef = useRef<WebContainer | null>(null);
   const shellInputRef = useRef<WritableStreamDefaultWriter<string> | null>(null);
   const initedRef = useRef(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const adapterRef = useRef<FrameworkAdapter | null>(null);
 
   const log = useCallback((text: string) => {
     writeToTerminal(text);
@@ -280,12 +154,87 @@ const PreviewApp = () => {
     }
   }, []);
 
+  // 下载项目为 zip 文件
+  const downloadProject = useCallback(async () => {
+    const webcontainer = webcontainerRef.current;
+    if (!webcontainer) return;
+
+    setDownloading(true);
+    log('\n[下载] 正在打包项目文件...\n');
+
+    try {
+      const zip = new JSZip();
+
+      // 递归读取目录
+      const readDir = async (dirPath: string, zipFolder: JSZip) => {
+        const entries = await webcontainer.fs.readdir(dirPath, { withFileTypes: true });
+        for (const entry of entries) {
+          const fullPath = dirPath === '/' ? `/${entry.name}` : `${dirPath}/${entry.name}`;
+          // 跳过 node_modules 和 .pnpm-store 目录
+          if (entry.name === 'node_modules' || entry.name === '.pnpm-store') {
+            continue;
+          }
+          if (entry.isDirectory()) {
+            const subFolder = zipFolder.folder(entry.name);
+            if (subFolder) {
+              await readDir(fullPath, subFolder);
+            }
+          } else {
+            try {
+              const content = await webcontainer.fs.readFile(fullPath);
+              // 处理 package.json，移除不需要的依赖
+              if (entry.name === 'package.json') {
+                const text = new TextDecoder().decode(content);
+                const pkg = JSON.parse(text);
+                // 移除 @rspack/binding-wasm32-wasi
+                if (pkg.dependencies) {
+                  delete pkg.dependencies['@rspack/binding-wasm32-wasi'];
+                }
+                if (pkg.devDependencies) {
+                  delete pkg.devDependencies['@rspack/binding-wasm32-wasi'];
+                }
+                zipFolder.file(entry.name, JSON.stringify(pkg, null, 2));
+              } else {
+                zipFolder.file(entry.name, content);
+              }
+            } catch (e) {
+              console.warn(`跳过文件: ${fullPath}`, e);
+            }
+          }
+        }
+      };
+
+      await readDir('/', zip);
+
+      // 生成 zip 文件
+      const blob = await zip.generateAsync({ type: 'blob' });
+      const url = URL.createObjectURL(blob);
+
+      // 触发下载
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${frameworkName.toLowerCase().replace(/\s+/g, '-')}-project.zip`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      log('[下载] 项目打包完成!\n');
+    } catch (err) {
+      console.error('下载失败:', err);
+      log(`[下载] 打包失败: ${err instanceof Error ? err.message : '未知错误'}\n`);
+    } finally {
+      setDownloading(false);
+    }
+  }, [frameworkName, log]);
+
   // 启动交互式 shell
   const startShell = useCallback(async (webcontainer: WebContainer) => {
+    // 使用固定的终端尺寸，避免访问 terminal.cols/rows 可能导致的 dimensions 错误
     const shellProcess = await webcontainer.spawn('jsh', {
       terminal: {
-        cols: globalTerminal?.cols || 80,
-        rows: globalTerminal?.rows || 24,
+        cols: 80,
+        rows: 20,
       },
     });
 
@@ -313,9 +262,27 @@ const PreviewApp = () => {
     setCommandInput('');
   }, [commandInput]);
 
-  // 初始化 xterm
+  // 初始化 xterm（兼容 React StrictMode）
+  // 参考: https://github.com/xtermjs/xterm.js/issues/4983
   useEffect(() => {
-    if (!terminalContainerRef.current || globalTerminal) return;
+    const container = terminalContainerRef.current;
+    if (!container) return;
+
+    // 如果有待执行的 dispose，取消它（StrictMode 重新挂载的情况）
+    if (disposeTimer) {
+      clearTimeout(disposeTimer);
+      disposeTimer = null;
+    }
+
+    // 如果已有终端实例且仍然有效，直接复用
+    if (globalTerminal) {
+      // 确保终端附加到当前容器
+      if (!container.querySelector('.xterm')) {
+        globalTerminal.open(container);
+      }
+      setTerminalReady(true);
+      return;
+    }
 
     const terminal = new Terminal({
       theme: {
@@ -327,39 +294,29 @@ const PreviewApp = () => {
       fontFamily: "'SF Mono', 'Fira Code', Consolas, monospace",
       cursorBlink: false,
       disableStdin: true,
+      cols: 80,
+      rows: 20,
+      scrollback: 1000,
     });
 
-    const fitAddon = new FitAddon();
-    terminal.loadAddon(fitAddon);
-    terminal.open(terminalContainerRef.current);
-
-    // 延迟调用 fit()，确保容器有尺寸
-    requestAnimationFrame(() => {
-      try {
-        fitAddon.fit();
-      } catch (e) {
-        // 忽略 fit 错误
-      }
-    });
-
+    terminal.open(container);
     globalTerminal = terminal;
-    fitAddonRef.current = fitAddon;
 
-    setTerminalReady(true);
-
-    const handleResize = () => {
-      try {
-        fitAddon.fit();
-      } catch (e) {
-        // 忽略 fit 错误
-      }
-    };
-    window.addEventListener('resize', handleResize);
+    // 等待 open() 内部初始化完成后再标记就绪
+    const readyTimer = setTimeout(() => {
+      setTerminalReady(true);
+    }, 50);
 
     return () => {
-      window.removeEventListener('resize', handleResize);
-      terminal.dispose();
-      globalTerminal = null;
+      clearTimeout(readyTimer);
+      // 延迟 dispose，让 StrictMode 的快速重新挂载有机会取消
+      disposeTimer = setTimeout(() => {
+        if (globalTerminal === terminal) {
+          terminal.dispose();
+          globalTerminal = null;
+        }
+        disposeTimer = null;
+      }, 100);
     };
   }, []);
 
@@ -377,8 +334,10 @@ const PreviewApp = () => {
 
     const { data, isUrlMode: urlMode } = result;
 
-    // 设置是否从父窗口打开（需要同时满足：数据标记 + 存在 opener）
-    if (data.fromParent && window.opener) {
+    // 检测是否从父窗口打开（通过 opener 或同源 referrer 判断）
+    const hasOpener = !!window.opener;
+    const hasSameOriginReferrer = document.referrer && document.referrer.startsWith(window.location.origin);
+    if (hasOpener || hasSameOriginReferrer) {
       setFromParent(true);
     }
 
@@ -411,13 +370,26 @@ const PreviewApp = () => {
   }, [log]);
 
   const runPreview = async (code: string, fileName: string) => {
+    // 检测框架类型
+    const detection = detectFramework(fileName);
+    if (!detection) {
+      setError(`不支持的文件类型: ${fileName}`);
+      updateStatus('error', '不支持的文件类型');
+      return;
+    }
+
+    const { adapter } = detection;
+    adapterRef.current = adapter;
+    setFrameworkName(adapter.name);
+
     // Analyze dependencies
     updateStatus('booting', '正在分析依赖...');
-    const extraDeps = analyzeDependencies(code);
-    const allDeps = [...DEFAULT_DEPS, ...extraDeps];
+    const extraDeps = analyzeDependencies(code, adapter.baseDeps);
+    const allDeps = [...adapter.defaultDeps, ...extraDeps];
 
+    log(`检测到框架: ${adapter.name}\n`);
     log('分析代码依赖...\n');
-    log(`默认依赖: ${DEFAULT_DEPS.join(', ')}\n`);
+    log(`默认依赖: ${adapter.defaultDeps.join(', ')}\n`);
     if (extraDeps.length > 0) {
       log(`额外依赖: ${extraDeps.join(', ')}\n`);
     }
@@ -455,10 +427,11 @@ const PreviewApp = () => {
         // 忽略清理错误
       }
 
-      const { files } = createFiles(code, fileName, extraDeps);
+      // 使用适配器创建文件
+      const files = adapter.createFiles(code, fileName, extraDeps);
 
       updateStatus('booting', '正在创建项目文件...');
-      await webcontainer.mount(files);
+      await webcontainer.mount(files as FileSystemTree);
       log('项目文件已创建\n\n');
 
       // 恢复 pnpm store 缓存
@@ -559,20 +532,43 @@ const PreviewApp = () => {
   return (
     <div className="flex flex-col min-h-screen bg-[#1e1e1e] text-white font-sans">
       {/* Header */}
-      <header className="flex items-center gap-3 px-4 py-3 bg-[#2d2d2d] border-b border-[#404040]">
-        <h1 className="text-sm font-medium">React 组件预览</h1>
-        <div className="flex items-center gap-2 text-sm text-gray-400">
-          <div className={`w-2 h-2 rounded-full ${getStatusDotClass()}`} />
-          <span>{statusMessage}</span>
+      <header className="flex items-center justify-between px-4 py-3 bg-[#2d2d2d] border-b border-[#404040]">
+        <div className="flex items-center gap-3">
+          <h1 className="text-sm font-medium">{frameworkName} 组件预览</h1>
+          <div className="flex items-center gap-2 text-sm text-gray-400">
+            <div className={`w-2 h-2 rounded-full ${getStatusDotClass()}`} />
+            <span>{statusMessage}</span>
+          </div>
         </div>
+        <button
+          onClick={downloadProject}
+          disabled={!previewUrl || downloading}
+          className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5"
+        >
+          {downloading ? (
+            <>
+              <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              打包中...
+            </>
+          ) : (
+            <>
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+              下载项目
+            </>
+          )}
+        </button>
       </header>
 
-      {/* 从父窗口打开时的提示 */}
+      {/* 分享提示 */}
       {fromParent && (
-        <div className={`px-4 py-2 border-b text-xs ${isUrlMode ? 'bg-blue-900/50 border-blue-800 text-blue-200' : 'bg-amber-900/50 border-amber-800 text-amber-200'}`}>
+        <div
+          className={`px-4 py-2 border-b text-xs ${isUrlMode ? 'bg-blue-900/50 border-blue-800 text-blue-200' : 'bg-amber-900/50 border-amber-800 text-amber-200'}`}
+        >
           {isUrlMode
-            ? '💡 保持该窗口不关闭，即可将该页面分享给其他人，但他人无法看到你的代码变化引发的实时更新。如需让对方看到更新，请关闭窗口，重新发起预览再分享'
-            : '⚠️ 文件内容过大，无法启用分享功能'}
+            ? '可以直接复制当前页面 URL 分享给他人。注意：分享后的代码更新不会同步，如需更新请重新分享新的链接'
+            : '文件内容过大，无法通过 URL 分享'}
         </div>
       )}
 
@@ -583,7 +579,7 @@ const PreviewApp = () => {
           {/* Dependencies */}
           <div className="border-b border-[#404040]">
             <div className="flex items-center justify-between px-3 py-2 bg-[#2d2d2d] border-b border-[#404040]">
-              <span className="text-xs text-gray-400">📦 依赖</span>
+              <span className="text-xs text-gray-400">依赖</span>
               <span className="px-2 py-0.5 text-[10px] bg-blue-500 text-white rounded-full">
                 {dependencies.length}
               </span>
@@ -593,10 +589,7 @@ const PreviewApp = () => {
                 <div className="text-xs text-gray-500">没有额外依赖</div>
               ) : (
                 dependencies.map((dep) => (
-                  <div
-                    key={dep.name}
-                    className="flex items-center gap-2 py-1 text-xs font-mono"
-                  >
+                  <div key={dep.name} className="flex items-center gap-2 py-1 text-xs font-mono">
                     <span className="text-blue-400">{dep.name}</span>
                     <span
                       className={`ml-auto px-2 py-0.5 rounded text-[10px] ${getDepStatusClass(dep.status)}`}
@@ -612,12 +605,9 @@ const PreviewApp = () => {
           {/* Terminal */}
           <div className="flex flex-col flex-1 min-h-0">
             <div className="px-3 py-2 bg-[#2d2d2d] border-b border-[#404040]">
-              <span className="text-xs text-gray-400">⬛ 终端</span>
+              <span className="text-xs text-gray-400">终端</span>
             </div>
-            <div
-              ref={terminalContainerRef}
-              className="flex-1 overflow-hidden"
-            />
+            <div ref={terminalContainerRef} className="flex-1 overflow-hidden" />
             {/* 命令输入框 */}
             <div className="flex items-center gap-2 px-3 py-2 bg-[#2d2d2d] border-t border-[#404040]">
               <span className="text-xs text-gray-500">$</span>
@@ -656,7 +646,7 @@ const PreviewApp = () => {
                 className="px-2 py-1 text-xs text-gray-300 hover:text-white hover:bg-[#404040] rounded transition-colors"
                 title="刷新预览"
               >
-                ↻ 刷新
+                刷新
               </button>
             )}
           </div>

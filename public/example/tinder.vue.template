@@ -1,0 +1,181 @@
+<template>
+  <div class="flex flex-col h-screen bg-gray-100 overflow-hidden font-sans select-none">
+    <header class="flex justify-between items-center p-4 bg-white shadow-sm z-50">
+      <div class="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center">
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ccc" stroke-width="2"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+      </div>
+      <div class="flex items-center gap-1">
+        <svg viewBox="0 0 32 32" width="28" height="28" fill="#fe3c72"><path d="M18.12 30.64l-4.56-2.58A13.84 13.84 0 0 1 6.8 16.24a14 14 0 0 1 18.42-7.22 13.87 13.87 0 0 1 5.92 11.84 14.1 14.1 0 0 1-13.02 9.78z"></path></svg>
+        <span class="text-xl font-black text-[#fe3c72] tracking-tighter uppercase italic">tinder</span>
+      </div>
+      <div class="w-10 h-10 flex items-center justify-center">
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ccc" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+      </div>
+    </header>
+
+    <div class="text-center py-2 text-[10px] text-gray-400 font-bold uppercase tracking-widest">
+      Card {{ currentIndex + 1 }} / {{ users.length }}
+    </div>
+
+    <main class="flex-1 relative flex items-center justify-center p-4 overflow-hidden">
+      <div v-for="(user, index) in users.slice(currentIndex, currentIndex + 3)" 
+           :key="user.id" 
+           class="absolute inset-0 m-auto w-full max-w-[360px] h-[540px] transition-all duration-300"
+           :style="getCardStyle(currentIndex + index)"
+           @mousedown="startDrag($event, currentIndex + index)"
+           @touchstart="startDrag($event, currentIndex + index)">
+        
+        <div class="relative w-full h-full rounded-2xl shadow-2xl overflow-hidden bg-white border border-gray-100 flex flex-col">
+          <div class="relative flex-1 bg-gray-200 overflow-hidden">
+            <img :src="user.image" 
+                 class="w-full h-full object-cover pointer-events-none"
+                 @error="handleImgError(user)" />
+            
+            <div v-if="user.isBroken" class="absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-br from-gray-400 to-gray-600 text-white p-10 text-center">
+              <span class="text-6xl mb-4">👤</span>
+              <p class="font-bold text-xl">{{ user.name }} 的照片加载失败</p>
+              <p class="text-sm opacity-70">但你依然可以滑动 ta</p>
+            </div>
+          </div>
+          
+          <div class="absolute bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-black/80 via-black/40 to-transparent text-white">
+            <h2 class="text-3xl font-bold">{{ user.name }}, {{ user.age }}</h2>
+            <p class="text-sm opacity-90 mt-1 h-10 overflow-hidden">{{ user.bio }}</p>
+          </div>
+
+          <div v-if="currentIndex + index === currentIndex && dragOffset.x > 50" class="absolute top-10 left-6 border-4 border-green-500 text-green-500 font-black text-4xl px-4 py-1 rounded-lg rotate-[-15deg] uppercase">LIKE</div>
+          <div v-if="currentIndex + index === currentIndex && dragOffset.x < -50" class="absolute top-10 right-6 border-4 border-red-500 text-red-500 font-black text-4xl px-4 py-1 rounded-lg rotate-[15deg] uppercase">NOPE</div>
+        </div>
+      </div>
+
+      <div v-if="currentIndex >= users.length" class="text-center p-10 animate-in fade-in zoom-in duration-500">
+        <div class="w-20 h-20 bg-rose-50 rounded-full flex items-center justify-center mx-auto mb-4 border-2 border-rose-100">
+          <svg viewBox="0 0 24 24" class="w-10 h-10 text-[#fe3c72]" fill="currentColor"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
+        </div>
+        <h3 class="text-xl font-bold text-gray-800">全部滑完了！</h3>
+        <button @click="resetAndShuffle" class="mt-6 px-8 py-3 bg-[#fe3c72] text-white rounded-full font-bold shadow-lg hover:shadow-xl active:scale-95 transition">
+          重新洗牌
+        </button>
+      </div>
+    </main>
+
+    <footer class="flex justify-center gap-10 items-center p-8 bg-transparent">
+      <button @click="swipeLeft" class="w-14 h-14 rounded-full bg-white shadow-lg text-red-500 flex items-center justify-center active:scale-75 transition-transform">
+        <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+      </button>
+      <button @click="swipeRight" class="w-14 h-14 rounded-full bg-white shadow-lg text-green-500 flex items-center justify-center active:scale-75 transition-transform">
+        <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="currentColor"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg>
+      </button>
+    </footer>
+  </div>
+</template>
+
+<script setup>
+import { ref, reactive } from 'vue';
+
+// --- 洗牌算法 ---
+const shuffle = (arr) => arr.sort(() => Math.random() - 0.5);
+
+// --- 数据生成 (加入代理地址) ---
+const generateData = () => {
+  const names = ['Emma', '李强', 'Olivia', ' Noah', 'Ava', ' Sophia', '张明', 'Mia', 'Lucas', 'Ethan', '王芳', 'Chloe', 'Jack', 'Lily', '陈健', 'Ryan', 'Sarah', 'Kevin', 'David', 'Luna'];
+  const bios = ['热爱健身，每天跑步 5km', '咖啡师，分享好豆子', '在逃大厨，擅长红烧肉', '摄影师，镜头下有故事', '全栈开发，拒绝 996'];
+  
+  return Array.from({ length: 55 }, (_, i) => {
+    const seed = i + 100;
+    // 使用 weserv.nl 作为代理中转，极大提高 Picsum 图片在各地的加载率
+    const rawUrl = `https://picsum.photos/seed/${seed}/500/800`;
+    const proxiedUrl = `https://images.weserv.nl/?url=${encodeURIComponent(rawUrl)}`;
+    
+    return {
+      id: i,
+      name: names[i % names.length],
+      age: 20 + (i % 10),
+      bio: bios[i % bios.length],
+      image: proxiedUrl,
+      isBroken: false // 标记图是否炸了
+    };
+  });
+};
+
+const users = ref(shuffle(generateData()));
+const currentIndex = ref(0);
+const isDragging = ref(false);
+const startPos = reactive({ x: 0, y: 0 });
+const dragOffset = reactive({ x: 0, y: 0 });
+
+const handleImgError = (user) => {
+  user.isBroken = true; // 开启保底显示逻辑
+};
+
+const resetAndShuffle = () => {
+  users.value = shuffle(generateData());
+  currentIndex.value = 0;
+  dragOffset.x = 0;
+  dragOffset.y = 0;
+};
+
+const getCardStyle = (index) => {
+  const stackIndex = index - currentIndex.value;
+  if (stackIndex < 0) return { opacity: 0, pointerEvents: 'none' };
+  
+  if (stackIndex === 0) {
+    const rotation = dragOffset.x * 0.1;
+    return {
+      transform: `translate3d(${dragOffset.x}px, ${dragOffset.y}px, 0) rotate(${rotation}deg)`,
+      transition: isDragging.value ? 'none' : 'transform 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275)',
+      zIndex: 100
+    };
+  }
+
+  const scale = Math.max(0, 1 - stackIndex * 0.05);
+  const translateY = stackIndex * 15;
+  return {
+    transform: `translate3d(0, ${translateY}px, 0) scale(${scale})`,
+    zIndex: 100 - stackIndex,
+    transition: 'all 0.4s ease'
+  };
+};
+
+const startDrag = (event, index) => {
+  if (index !== currentIndex.value) return;
+  isDragging.value = true;
+  const clientX = event.touches ? event.touches[0].clientX : event.clientX;
+  const clientY = event.touches ? event.touches[0].clientY : event.clientY;
+  startPos.x = clientX;
+  startPos.y = clientY;
+
+  const move = (e) => {
+    const cx = e.touches ? e.touches[0].clientX : e.clientX;
+    const cy = e.touches ? e.touches[0].clientY : e.clientY;
+    dragOffset.x = cx - startPos.x;
+    dragOffset.y = cy - startPos.y;
+  };
+
+  const end = () => {
+    isDragging.value = false;
+    if (dragOffset.x > 120) swipeRight();
+    else if (dragOffset.x < -120) swipeLeft();
+    else { dragOffset.x = 0; dragOffset.y = 0; }
+    window.removeEventListener('mousemove', move);
+    window.removeEventListener('mouseup', end);
+    window.removeEventListener('touchmove', move);
+    window.removeEventListener('touchend', end);
+  };
+
+  window.addEventListener('mousemove', move);
+  window.addEventListener('mouseup', end);
+  window.addEventListener('touchmove', move);
+  window.addEventListener('touchend', end);
+};
+
+const swipeLeft = () => {
+  dragOffset.x = -1000;
+  setTimeout(() => { currentIndex.value++; dragOffset.x = 0; dragOffset.y = 0; }, 200);
+};
+
+const swipeRight = () => {
+  dragOffset.x = 1000;
+  setTimeout(() => { currentIndex.value++; dragOffset.x = 0; dragOffset.y = 0; }, 200);
+};
+</script>

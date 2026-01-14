@@ -1,0 +1,581 @@
+import React, { useState, useEffect, useRef } from "react";
+import {
+  Layout,
+  Menu,
+  Table,
+  Tag,
+  Space,
+  Card,
+  Statistic,
+  Row,
+  Col,
+  Progress,
+  Badge,
+  Avatar,
+  Tabs,
+  Select,
+  Switch,
+  Typography,
+  Button,
+  List,
+  InputNumber,
+  Form,
+  Modal,
+  message,
+  Alert,
+} from "antd";
+import {
+  DashboardOutlined,
+  FireOutlined,
+  ReloadOutlined,
+  BankOutlined,
+  LockOutlined,
+  WarningOutlined,
+  CompassOutlined,
+  ArrowUpOutlined,
+  ArrowDownOutlined,
+  GlobalOutlined,
+  ThunderboltOutlined,
+  TransactionOutlined,
+} from "@ant-design/icons";
+// 引入 Ant Design Charts
+import { Area, Pie, Column } from "@ant-design/charts";
+// 引入 Lucide 图标补充
+import {
+  Skull,
+  Banknote,
+  Coins,
+  TrendingUp,
+  ShieldCheck,
+  Zap,
+} from "lucide-react";
+
+const { Header, Content, Sider } = Layout;
+const { Title, Text } = Typography;
+
+// --- 模拟数据：六道轮回 ---
+const reincarnationData = [
+  {
+    key: "1",
+    name: "玄诚道人",
+    karma: 9800,
+    current: "人道",
+    target: "heaven",
+    targetName: "三十三天-妙喜世界",
+    time: "00:45:12",
+  },
+  {
+    key: "2",
+    name: "善施居士",
+    karma: 8500,
+    current: "人道",
+    target: "heaven",
+    targetName: "欲界天-兜率陀天",
+    time: "02:15:00",
+  },
+  {
+    key: "3",
+    name: "赵大宝",
+    karma: 550,
+    current: "畜生道",
+    target: "human",
+    targetName: "东胜神洲-富贵人家",
+    time: "10:30:45",
+  },
+  {
+    key: "4",
+    name: "林小草",
+    karma: 120,
+    current: "人道",
+    target: "human",
+    targetName: "南瞻部洲-平民百姓",
+    time: "48:12:00",
+  },
+  {
+    key: "5",
+    name: "厉战将",
+    karma: 4200,
+    current: "人道",
+    target: "asura",
+    targetName: "阿修罗界-修罗战场",
+    time: "05:20:00",
+  },
+  {
+    key: "6",
+    name: "贪婪商人",
+    karma: -500,
+    current: "人道",
+    target: "animal",
+    targetName: "大熊猫(稀有)",
+    time: "01:05:00",
+  },
+  {
+    key: "7",
+    name: "欺诈者",
+    karma: -1200,
+    current: "人道",
+    target: "animal",
+    targetName: "实验室小白鼠",
+    time: "00:10:30",
+  },
+  {
+    key: "8",
+    name: "不孝子",
+    karma: -4500,
+    current: "人道",
+    target: "ghost",
+    targetName: "焦面饿鬼界",
+    time: "即将开始",
+  },
+  {
+    key: "9",
+    name: "堕落魔修",
+    karma: -9999,
+    current: "人道",
+    target: "hell",
+    targetName: "无间地狱-拔舌分区",
+    time: "锁定中",
+  },
+];
+
+const App: React.FC = () => {
+  const [activeKey, setActiveKey] = useState("dashboard");
+  const [balance, setBalance] = useState(88429999999);
+  const [logs, setLogs] = useState<string[]>([]);
+  const [transType, setTransType] = useState<"in" | "out">("in");
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const logEndRef = useRef<HTMLDivElement>(null);
+
+  // --- 18层地狱名称 ---
+  const hellNames = [
+    "拔舌",
+    "剪刀",
+    "铁树",
+    "孽镜",
+    "蒸笼",
+    "铜柱",
+    "刀山",
+    "冰山",
+    "油锅",
+    "牛坑",
+    "石压",
+    "舂臼",
+    "血池",
+    "枉死",
+    "磔刑",
+    "火山",
+    "石磨",
+    "刀锯",
+  ];
+
+  // --- 自动滚动日志 & 模拟负载 ---
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const sinners = ["贪官某某", "邪修李四", "不孝子王五", "张三"];
+      const actions = ["刑满释放", "魂体崩溃", "咆哮不止", "加刑500年"];
+      const newLog = `[${new Date().toLocaleTimeString()}] ${
+        sinners[Math.floor(Math.random() * 4)]
+      } 在 ${hellNames[Math.floor(Math.random() * 18)]}地狱 ${
+        actions[Math.floor(Math.random() * 4)]
+      }`;
+      setLogs((prev) => [...prev.slice(-10), newLog]);
+    }, 2000);
+    return () => clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    logEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [logs]);
+
+  // --- 模块：生死总览 (Dashboard) ---
+  const renderDashboard = () => (
+    <div style={{ animation: "fadeIn 0.5s" }}>
+      <Row gutter={[16, 16]}>
+        <Col span={6}>
+          <Card bordered={false} hoverable>
+            <Statistic
+              title="三界总魂量"
+              value={14205928}
+              prefix={<GlobalOutlined />}
+              valueStyle={{ color: "#1890ff" }}
+            />
+            <Progress percent={70} showInfo={false} strokeColor="#1890ff" />
+          </Card>
+        </Col>
+        <Col span={6}>
+          <Card bordered={false} hoverable>
+            <Statistic
+              title="地狱平均负载"
+              value={76.8}
+              prefix={<Zap size={16} />}
+              suffix="%"
+              valueStyle={{ color: "#f5222d" }}
+            />
+            <Progress percent={76.8} status="exception" showInfo={false} />
+          </Card>
+        </Col>
+        <Col span={6}>
+          <Card bordered={false} hoverable>
+            <Statistic
+              title="功德池盈余"
+              value={884.2}
+              prefix={<TrendingUp size={16} />}
+              suffix="万e"
+              valueStyle={{ color: "#faad14" }}
+            />
+            <Progress percent={45} showInfo={false} strokeColor="#faad14" />
+          </Card>
+        </Col>
+        <Col span={6}>
+          <Card bordered={false} hoverable>
+            <Statistic
+              title="待轮回排队"
+              value={12405}
+              prefix={<ReloadOutlined />}
+              valueStyle={{ color: "#52c41a" }}
+            />
+            <Badge status="processing" text="实时轮转中" />
+          </Card>
+        </Col>
+      </Row>
+      <Row gutter={[16, 16]} style={{ marginTop: 20 }}>
+        <Col span={14}>
+          <Card title="能流监控 (AntD Charts)" bordered={false}>
+            <Area
+              data={Array.from({ length: 20 }, (_, i) => ({
+                x: i,
+                y: Math.random() * 100,
+              }))}
+              xField="x"
+              yField="y"
+              height={250}
+              smooth={true}
+            />
+          </Card>
+        </Col>
+        <Col span={10}>
+          <Card title="六道分布" bordered={false}>
+            <Pie
+              data={[
+                { type: "人道", v: 40 },
+                { type: "畜生", v: 30 },
+                { type: "天道", v: 10 },
+                { type: "其他", v: 20 },
+              ]}
+              angleField="v"
+              colorField="type"
+              height={250}
+              radius={0.8}
+            />
+          </Card>
+        </Col>
+      </Row>
+    </div>
+  );
+
+  // --- 模块：十八层地狱 (Hells) ---
+  const renderHells = () => (
+    <Row gutter={[16, 16]}>
+      <Col span={18}>
+        <Row gutter={[8, 8]}>
+          {hellNames.map((name, i) => (
+            <Col key={i} span={4}>
+              <Card
+                size="small"
+                title={`${i + 1}.${name}`}
+                hoverable
+                bodyStyle={{ textAlign: "center" }}
+              >
+                <Progress
+                  type="dashboard"
+                  percent={Math.floor(Math.random() * 40) + 50}
+                  width={50}
+                  strokeColor={i % 2 === 0 ? "#f5222d" : "#faad14"}
+                />
+              </Card>
+            </Col>
+          ))}
+        </Row>
+      </Col>
+      <Col span={6}>
+        <Card
+          title="受刑实时日志"
+          style={{ background: "#000", borderRadius: 8 }}
+          headStyle={{ color: "#00ff00", borderBottom: "1px solid #333" }}
+          bodyStyle={{ padding: "10px" }}
+        >
+          <div
+            style={{
+              height: "400px",
+              overflowY: "auto",
+              color: "#00ff00",
+              fontFamily: "monospace",
+              fontSize: "12px",
+            }}
+          >
+            {logs.map((log, i) => (
+              <div
+                key={i}
+                style={{
+                  marginBottom: 8,
+                  borderLeft: "2px solid #004400",
+                  paddingLeft: 8,
+                }}
+              >
+                {log}
+              </div>
+            ))}
+            <div ref={logEndRef} />
+          </div>
+        </Card>
+      </Col>
+    </Row>
+  );
+
+  // --- 模块：冥币管理中心 (Finance) ---
+  const renderFinance = () => (
+    <div style={{ animation: "fadeIn 0.3s" }}>
+      <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+        <Col span={18}>
+          <Card
+            size="small"
+            title={
+              <Space>
+                <Banknote size={16} /> 实时跨维度汇率看板
+              </Space>
+            }
+          >
+            <Row justify="space-around">
+              <Statistic
+                title="HM/CNY (冥元/人民币)"
+                value="1,200,000"
+                prefix={<ArrowUpOutlined />}
+                valueStyle={{ color: "#3f51b5", fontSize: 16 }}
+              />
+              <Statistic
+                title="HM/USD (冥元/美元)"
+                value="8,500,000"
+                prefix={<ArrowDownOutlined />}
+                valueStyle={{ color: "#cf1322", fontSize: 16 }}
+              />
+              <Statistic
+                title="HM/GOLD (冥元/黄金克)"
+                value="650,000"
+                valueStyle={{ fontSize: 16 }}
+              />
+            </Row>
+          </Card>
+        </Col>
+        <Col span={6}>
+          <Card size="small" style={{ background: "#111", color: "#fff" }}>
+            <Statistic
+              title={<span style={{ color: "#888" }}>国库储备 (HM)</span>}
+              value={balance}
+              valueStyle={{ color: "#ffd700", fontSize: 20 }}
+              groupSeparator=","
+            />
+          </Card>
+        </Col>
+      </Row>
+      <Card
+        bordered={false}
+        activeTabKey={transType}
+        onTabChange={(key) => setTransType(key as "in" | "out")}
+        tabList={[
+          { key: "in", tab: "入金 (祭祀同步)" },
+          { key: "out", tab: "出金 (财政划拨)" },
+        ]}
+        extra={
+          <Button
+            type="primary"
+            danger={transType === "out"}
+            onClick={() => setIsModalOpen(true)}
+          >
+            {transType === "in" ? "手动登记" : "签发核准"}
+          </Button>
+        }
+      >
+        <Table
+          size="small"
+          dataSource={
+            transType === "in"
+              ? [
+                  {
+                    sn: "IN-01",
+                    source: "张氏后人",
+                    amount: 500000,
+                    time: "现在",
+                  },
+                ]
+              : [
+                  {
+                    sn: "OUT-01",
+                    project: "忘川河疏浚",
+                    amount: 120000,
+                    time: "今天",
+                  },
+                ]
+          }
+          columns={
+            transType === "in"
+              ? [
+                  { title: "流水号", dataIndex: "sn" },
+                  { title: "来源", dataIndex: "source" },
+                  {
+                    title: "金额",
+                    dataIndex: "amount",
+                    render: (v) => (
+                      <Text style={{ color: "#52c41a" }}>
+                        +{v.toLocaleString()}
+                      </Text>
+                    ),
+                  },
+                  { title: "时间", dataIndex: "time" },
+                ]
+              : [
+                  { title: "单据号", dataIndex: "sn" },
+                  { title: "项目", dataIndex: "project" },
+                  {
+                    title: "金额",
+                    dataIndex: "amount",
+                    render: (v) => (
+                      <Text style={{ color: "#f5222d" }}>
+                        -{v.toLocaleString()}
+                      </Text>
+                    ),
+                  },
+                  { title: "时间", dataIndex: "time" },
+                ]
+          }
+        />
+      </Card>
+    </div>
+  );
+
+  return (
+    <Layout style={{ minHeight: "100vh" }}>
+      <Sider width={220} theme="dark">
+        <div style={{ padding: "24px", textAlign: "center" }}>
+          <Title level={4} style={{ color: "#fff", margin: 0 }}>
+            Underworld OS
+          </Title>
+        </div>
+        <Menu
+          theme="dark"
+          mode="inline"
+          selectedKeys={[activeKey]}
+          onClick={({ key }) => setActiveKey(key)}
+          items={[
+            {
+              key: "dashboard",
+              icon: <DashboardOutlined />,
+              label: "生死总览",
+            },
+            { key: "hells", icon: <FireOutlined />, label: "十八层地狱" },
+            {
+              key: "reincarnation",
+              icon: <ReloadOutlined />,
+              label: "六道轮回",
+            },
+            { key: "finance", icon: <BankOutlined />, label: "冥币中心" },
+            { key: "perms", icon: <LockOutlined />, label: "权限配置" },
+          ]}
+        />
+      </Sider>
+      <Layout>
+        <Header
+          style={{
+            background: "#fff",
+            padding: "0 24px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+          }}
+        >
+          <Space>
+            <CompassOutlined style={{ color: "#1890ff" }} />{" "}
+            <Text strong>地府中央指挥部 - 实时在线</Text>
+          </Space>
+          <Space>
+            <Badge count={logs.length}>
+              <Button
+                type="text"
+                icon={<WarningOutlined style={{ color: "red" }} />}
+              />
+            </Badge>
+            {/* 明确引入并使用 Avatar */}
+            <Avatar
+              style={{ backgroundColor: "#111" }}
+              icon={<Skull size={18} color="white" />}
+            />
+            <Text strong>崔判官</Text>
+          </Space>
+        </Header>
+        <Content style={{ margin: "16px" }}>
+          {activeKey === "dashboard" && renderDashboard()}
+          {activeKey === "hells" && renderHells()}
+          {activeKey === "finance" && renderFinance()}
+          {activeKey === "reincarnation" && (
+            <Card
+              title="六道轮回名单筛选"
+              extra={
+                <Select defaultValue="all" style={{ width: 120 }}>
+                  <Select.Option value="all">全六道</Select.Option>
+                </Select>
+              }
+            >
+              <Table
+                size="small"
+                dataSource={reincarnationData}
+                columns={[
+                  { title: "名称", dataIndex: "name" },
+                  {
+                    title: "功德",
+                    dataIndex: "karma",
+                    render: (v) => (
+                      <Tag color={v > 0 ? "gold" : "volcano"}>{v}</Tag>
+                    ),
+                  },
+                  { title: "目标", dataIndex: "targetName" },
+                ]}
+              />
+            </Card>
+          )}
+          {activeKey === "perms" && (
+            <Card title="职能权限矩阵">
+              <Table
+                pagination={false}
+                dataSource={[
+                  { role: "阎罗", p: "全权限" },
+                  { role: "判官", p: "二级审批" },
+                ]}
+                columns={[
+                  { title: "角色", dataIndex: "role" },
+                  { title: "权限", dataIndex: "p" },
+                  { title: "状态", render: () => <Switch defaultChecked /> },
+                ]}
+              />
+            </Card>
+          )}
+        </Content>
+      </Layout>
+      <Modal
+        title="财务操作"
+        open={isModalOpen}
+        onCancel={() => setIsModalOpen(false)}
+        onOk={() => {
+          message.success("指令已送达冥行");
+          setIsModalOpen(false);
+        }}
+      >
+        <Form layout="vertical">
+          <Form.Item label="操作金额">
+            <InputNumber style={{ width: "100%" }} />
+          </Form.Item>
+        </Form>
+      </Modal>
+    </Layout>
+  );
+};
+
+export default App;

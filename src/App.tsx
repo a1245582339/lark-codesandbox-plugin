@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import './App.css';
-import ReactPreview from './components/ReactPreview';
+import ComponentPreview from './components/ComponentPreview';
 import {
   initBitable,
   onFieldSelectionChange,
@@ -61,13 +61,13 @@ const App = () => {
       <header className="mb-4">
         <p className="text-sm text-gray-500">
           {isInBitable
-            ? '选择附件字段中的 JSX/TSX 文件进行实时预览'
-            : '上传 JSX/TSX 文件进行实时预览'}
+            ? '选择附件字段中的组件文件进行实时预览 (支持 React / Vue / Svelte)'
+            : '上传组件文件进行实时预览 (支持 React / Vue / Svelte)'}
         </p>
       </header>
 
       <main className="flex-1 flex flex-col">
-        <ReactPreview files={files} setFiles={setFiles} isInBitable={isInBitable} />
+        <ComponentPreview files={files} setFiles={setFiles} isInBitable={isInBitable} />
       </main>
     </div>
   );

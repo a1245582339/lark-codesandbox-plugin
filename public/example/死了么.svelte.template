@@ -1,0 +1,398 @@
+<script>
+  import { onMount, tick } from 'svelte';
+  import { spring, tweened } from 'svelte/motion';
+  import { fly } from 'svelte/transition';
+  import { interpolateLab } from 'd3-interpolate';
+
+  // --- 基础配置 ---
+  const CHECK_IN_LIMIT_MS = 48 * 60 * 60 * 1000; // 48小时毫秒数
+  const statusColors = {
+    safe: '#00ff88',    // 赛博绿
+    warning: '#facc15', // 警告黄
+    danger: '#ef4444'   // 警报红
+  };
+
+  // --- 响应式状态 ---
+  let lastCheckIn = Date.now();
+  let currentTime = Date.now();
+  let emergencyContact = { name: '', email: '' };
+  let status = 'safe';
+  let particles = [];
+
+  // 1. 颜色平滑过渡动画
+  const themeColor = tweened(statusColors.safe, {
+    duration: 800,
+    interpolate: interpolateLab
+  });
+
+  // 2. 鼠标/触摸追踪 (弹簧动画)
+  let coords = spring({ x: 50, y: 50 }, { stiffness: 0.05, damping: 0.15 });
+  let isHovering = false;
+
+  // --- 计算属性 (秒级倒计时) ---
+  $: timeDiff = Math.max(0, (lastCheckIn + CHECK_IN_LIMIT_MS) - currentTime);
+  
+  // 格式化剩余时间: HH:MM:SS
+  $: remainingTimeFormatted = (() => {
+    const totalSeconds = Math.floor(timeDiff / 1000);
+    const h = Math.floor(totalSeconds / 3600).toString().padStart(2, '0');
+    const m = Math.floor((totalSeconds % 3600) / 60).toString().padStart(2, '0');
+    const s = (totalSeconds % 60).toString().padStart(2, '0');
+    return `${h}:${m}:${s}`;
+  })();
+
+  // 状态自动切换
+  $: {
+    const progress = timeDiff / CHECK_IN_LIMIT_MS;
+    if (progress <= 0) status = 'danger';
+    else if (progress <= 0.25) status = 'warning';
+    else status = 'safe';
+    themeColor.set(statusColors[status]);
+  }
+
+  // --- 核心交互逻辑 ---
+  async function handleCheckIn() {
+    // A. 立即反馈：更新时间并触发粒子
+    lastCheckIn = Date.now();
+    createParticles();
+    
+    // B. 异步非阻塞操作
+    await tick(); 
+    requestAnimationFrame(() => {
+      saveData();
+    });
+  }
+
+  function createParticles() {
+    const count = 15;
+    const color = $themeColor;
+    particles = Array.from({ length: count }).map(() => ({
+      id: Math.random(),
+      x: (Math.random() - 0.5) * 150,
+      y: (Math.random() - 0.5) * 150,
+      color
+    }));
+    setTimeout(() => { particles = []; }, 600);
+  }
+
+  function saveData() {
+    localStorage.setItem('sileme_v2_data', JSON.stringify({ 
+      lastCheckIn, 
+      emergencyContact 
+    }));
+  }
+
+  onMount(() => {
+    const saved = JSON.parse(localStorage.getItem('sileme_v2_data') || '{}');
+    if (saved.lastCheckIn) {
+      lastCheckIn = saved.lastCheckIn;
+      emergencyContact = saved.emergencyContact || { name: '', email: '' };
+    }
+
+    const timer = setInterval(() => {
+      currentTime = Date.now();
+    }, 1000); // 秒级刷新
+
+    return () => clearInterval(timer);
+  });
+
+  function handleMouseMove(e) {
+    const { left, top, width, height } = e.currentTarget.getBoundingClientRect();
+    coords.set({
+      x: ((e.clientX - left) / width) * 100,
+      y: ((e.clientY - top) / height) * 100
+    });
+  }
+</script>
+
+<main class="app-container">
+  <div class="meteor-field">
+    {#each Array(12) as _, i}
+      <span class="meteor" style="left: {Math.random() * 100}%; animation-delay: {i * 0.8}s;"></span>
+    {/each}
+  </div>
+
+  <div class="content-wrapper">
+    <header>
+      <h1>DIED ME <small>死了么</small></h1>
+      <p class="subtitle">秒级生命监测系统已就绪</p>
+    </header>
+
+    <div 
+      class="magic-card" 
+      style="--glow-color: {$themeColor}; --x: {$coords.x}%; --y: {$coords.y}%"
+      on:mousemove={handleMouseMove}
+      on:mouseenter={() => isHovering = true}
+      on:mouseleave={() => isHovering = false}
+      role="button"
+      tabindex="0"
+      on:keydown={(e) => e.key === 'Enter' && handleCheckIn()}
+    >
+      <div class="card-inner">
+        <div class="status-badge" style="background: {$themeColor}22; color: {$themeColor}">
+          <span class="dot" style="background: {$themeColor}"></span>
+          {status.toUpperCase()}
+        </div>
+
+        <div class="timer-display" style="color: {$themeColor}">
+          {remainingTimeFormatted}
+        </div>
+        <p class="timer-label">距离发送紧急通知还有多久</p>
+      </div>
+      
+      {#if isHovering}
+        <div class="glow-overlay"></div>
+      {/if}
+    </div>
+
+    <div class="action-zone">
+      <div class="button-wrapper">
+        <button on:click={handleCheckIn} class="primary-btn">
+          我还在 (I AM ALIVE)
+        </button>
+
+        {#each particles as p (p.id)}
+          <div 
+            class="particle"
+            style="background: {p.color}; left: 50%; top: 50%;"
+            out:fly={{ x: p.x, y: p.y, duration: 600, opacity: 0 }}
+          ></div>
+        {/each}
+      </div>
+
+      <div class="settings-panel">
+        <div class="input-group">
+          <label for="c-name">紧急联系人</label>
+          <input id="c-name" bind:value={emergencyContact.name} on:blur={saveData} placeholder="姓名" />
+        </div>
+        <div class="input-group">
+          <label for="c-mail">通知邮箱</label>
+          <input id="c-mail" bind:value={emergencyContact.email} on:blur={saveData} placeholder="email@example.com" />
+        </div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<style>
+  :global(body) {
+    margin: 0;
+    background: #000;
+    color: #fff;
+    font-family: 'JetBrains Mono', 'Inter', monospace;
+    overflow: hidden;
+  }
+
+  .app-container {
+    position: relative;
+    width: 100vw;
+    height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background: radial-gradient(circle at center, #111 0%, #000 100%);
+  }
+
+  .content-wrapper {
+    position: relative;
+    z-index: 10;
+    width: 100%;
+    max-width: 400px;
+    padding: 20px;
+  }
+
+  header {
+    text-align: center;
+    margin-bottom: 40px;
+  }
+
+  h1 {
+    font-size: 2.5rem;
+    font-weight: 900;
+    letter-spacing: -2px;
+    margin: 0;
+    font-style: italic;
+  }
+
+  h1 small {
+    display: block;
+    font-size: 1rem;
+    letter-spacing: 4px;
+    margin-top: 5px;
+    opacity: 0.5;
+  }
+
+  .subtitle {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    opacity: 0.4;
+  }
+
+  /* Magic Card 核心样式 */
+  .magic-card {
+    position: relative;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 24px;
+    padding: 40px 20px;
+    overflow: hidden;
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+    box-shadow: 0 10px 30px -10px rgba(0,0,0,0.5);
+  }
+
+  .magic-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 20px 40px -15px var(--glow-color);
+  }
+
+  .card-inner {
+    position: relative;
+    z-index: 2;
+    text-align: center;
+  }
+
+  .glow-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    background: radial-gradient(circle at var(--x) var(--y), var(--glow-color) 0%, transparent 60%);
+    opacity: 0.15;
+    pointer-events: none;
+  }
+
+  .status-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 12px;
+    border-radius: 100px;
+    font-size: 0.7rem;
+    font-weight: bold;
+    margin-bottom: 20px;
+  }
+
+  .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    margin-right: 8px;
+    box-shadow: 0 0 10px var(--glow-color);
+  }
+
+  .timer-display {
+    font-size: 4.5rem;
+    font-weight: 900;
+    line-height: 1;
+    letter-spacing: -4px;
+    margin-bottom: 10px;
+    transition: color 0.5s ease;
+  }
+
+  .timer-label {
+    font-size: 0.6rem;
+    text-transform: uppercase;
+    opacity: 0.3;
+    letter-spacing: 1px;
+  }
+
+  /* 按钮与粒子 */
+  .action-zone {
+    margin-top: 40px;
+  }
+
+  .button-wrapper {
+    position: relative;
+    margin-bottom: 40px;
+  }
+
+  .primary-btn {
+    width: 100%;
+    padding: 20px;
+    border-radius: 100px;
+    border: none;
+    background: #fff;
+    color: #000;
+    font-size: 1.1rem;
+    font-weight: 800;
+    cursor: pointer;
+    transition: transform 0.1s;
+    will-change: transform;
+  }
+
+  .primary-btn:active {
+    transform: scale(0.96);
+  }
+
+  .particle {
+    position: absolute;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    pointer-events: none;
+    z-index: 5;
+  }
+
+  /* 输入框 */
+  .settings-panel {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 15px;
+    opacity: 0.4;
+    transition: opacity 0.3s;
+  }
+
+  .settings-panel:hover {
+    opacity: 1;
+  }
+
+  .input-group label {
+    display: block;
+    font-size: 0.6rem;
+    text-transform: uppercase;
+    margin-bottom: 5px;
+    margin-left: 5px;
+  }
+
+  .input-group input {
+    width: 100%;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 8px;
+    padding: 10px;
+    color: #fff;
+    box-sizing: border-box;
+    font-size: 0.8rem;
+  }
+
+  .input-group input:focus {
+    outline: none;
+    border-color: rgba(255,255,255,0.3);
+  }
+
+  /* 流星动画 */
+  .meteor-field {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
+
+  .meteor {
+    position: absolute;
+    top: -20px;
+    width: 1px;
+    height: 80px;
+    background: linear-gradient(to bottom, rgba(255,255,255,0.5), transparent);
+    animation: fall linear infinite;
+  }
+
+  @keyframes fall {
+    from { transform: translateY(-100px) translateX(50px) rotate(-20deg); opacity: 1; }
+    to { transform: translateY(100vh) translateX(-200px) rotate(-20deg); opacity: 0; }
+  }
+
+  /* 针对移动端优化 */
+  @media (max-width: 480px) {
+    .timer-display { font-size: 3.5rem; }
+    .settings-panel { grid-template-columns: 1fr; }
+  }
+</style>
