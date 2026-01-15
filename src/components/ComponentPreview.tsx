@@ -13,9 +13,9 @@ const MAX_HISTORY_FILES = 20;
 
 // 默认示例文件路径（.template 后缀会在加载时去除）
 const DEFAULT_EXAMPLE_FILES = [
-  'example/示例 生死簿后台管理系统.tsx.template',
-  'example/示例 tinder.vue.template',
-  'example/示例 死了么.svelte.template',
+  'example/示例-生死簿后台管理系统.tsx.template',
+  'example/示例-tinder.vue.template',
+  'example/示例-死了么.svelte.template',
 ];
 
 // 历史文件记录
