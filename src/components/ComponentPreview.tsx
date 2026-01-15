@@ -13,9 +13,9 @@ const MAX_HISTORY_FILES = 20;
 
 // 默认示例文件路径（.template 后缀会在加载时去除）
 const DEFAULT_EXAMPLE_FILES = [
-  'example/生死簿后台管理系统.tsx.template',
-  'example/tinder.vue.template',
-  'example/死了么.svelte.template',
+  'example/示例 生死簿后台管理系统.tsx.template',
+  'example/示例 tinder.vue.template',
+  'example/示例 死了么.svelte.template',
 ];
 
 // 历史文件记录
@@ -331,11 +331,25 @@ const ComponentPreview: React.FC<ComponentPreviewProps> = ({ files, setFiles, is
     setFileHistory(newHistory);
     saveFileHistory(newHistory);
 
-    // 如果删除的是当前选中的文件，清空编辑器
+    // 如果删除的是当前选中的文件
     if (activeHistoryId === fileId) {
-      setActiveHistoryId(null);
-      setCodeContent('');
-      setSelectedFile(null);
+      // 如果还有其他历史文件，自动选择第一个
+      if (newHistory.length > 0) {
+        const nextFile = newHistory[0];
+        setActiveHistoryId(nextFile.id);
+        setCodeContent(nextFile.content);
+        setSelectedFile({
+          name: nextFile.name,
+          url: '',
+          token: `history-${nextFile.id}`,
+          type: '',
+        });
+      } else {
+        // 没有其他文件了，清空编辑器
+        setActiveHistoryId(null);
+        setCodeContent('');
+        setSelectedFile(null);
+      }
     }
   }, [fileHistory, activeHistoryId]);
 
@@ -353,12 +367,16 @@ const ComponentPreview: React.FC<ComponentPreviewProps> = ({ files, setFiles, is
         // 有历史文件，加载第一个
         handleHistoryFileClick(fileHistory[0]);
       } else {
-        // 没有历史文件，加载默认示例
-        const examples = await loadDefaultExamples();
-        if (examples.length > 0) {
-          setFileHistory(examples);
-          saveFileHistory(examples);
-          handleHistoryFileClick(examples[0]);
+        // 只有在 localStorage 中完全没有历史记录字段时，才加载默认示例
+        // 如果字段存在但为空数组，说明用户主动删除了所有文件，不自动加载示例
+        const hasHistoryKey = localStorage.getItem(FILE_HISTORY_KEY) !== null;
+        if (!hasHistoryKey) {
+          const examples = await loadDefaultExamples();
+          if (examples.length > 0) {
+            setFileHistory(examples);
+            saveFileHistory(examples);
+            handleHistoryFileClick(examples[0]);
+          }
         }
       }
     };
